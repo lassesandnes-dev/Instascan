@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@/": path.resolve(root, "apps/web/src") + "/",
+      // `server-only` throws outside React Server Components; tests run in plain Node.
+      "server-only": path.resolve(root, "apps/web/test/stubs/server-only.ts"),
     },
   },
   test: {
@@ -25,6 +27,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "integration",
+          globalSetup: ["apps/web/test/integration/global-setup.ts"],
           include: ["apps/web/test/integration/**/*.test.ts", "packages/*/test-integration/**/*.test.ts"],
           environment: "node",
           fileParallelism: false,

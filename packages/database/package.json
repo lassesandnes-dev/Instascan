@@ -19,7 +19,9 @@
     "@massefelt/shared": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
-    "pg": "^8.16.0"
+    "pg": "^8.16.0",
+    "@massefelt/tools": "workspace:*",
+    "@massefelt/geometry": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "^8.15.0",

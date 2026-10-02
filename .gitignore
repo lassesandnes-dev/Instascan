@@ -18,3 +18,5 @@ apps/worker/*.egg-info/
 playwright-report/
 test-results/
 .DS_Store
+next-env.d.ts
+test-results/

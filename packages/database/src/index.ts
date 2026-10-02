@@ -22,3 +22,5 @@ export function getPrisma(): Database {
   }
   return globalForPrisma.__massefeltPrisma;
 }
+
+export * from "./data-port";
