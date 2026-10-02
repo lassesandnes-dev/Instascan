@@ -1,0 +1,28 @@
+[project]
+name = "massefelt-worker"
+version = "0.1.0"
+description = "Background processing worker for Massefelt (photogrammetry, point-cloud and terrain pipelines)"
+requires-python = ">=3.11"
+dependencies = [
+  "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+massefelt-worker = "massefelt_worker.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["massefelt_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
