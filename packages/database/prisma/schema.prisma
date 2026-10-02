@@ -1,0 +1,441 @@
+// Massefelt data model.
+//
+// Conventions
+// - All coordinates are stored in the project's/asset's declared CRS exactly
+//   as received. The platform never silently converts coordinate systems.
+// - Lengths are in the declared `units` (metres by default).
+// - Every stored or derived dataset is an `Asset` that carries full
+//   provenance; typed detail tables (PointCloud, Mesh, Surface) hang off it.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  /// External auth subject (e.g. Supabase auth.users.id). Null for local dev user.
+  authSubject String?      @unique
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+  projects    Project[]    @relation("ProjectCreatedBy")
+  scans       Scan[]
+  measurements Measurement[]
+  conversations AIConversation[]
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+  projects    Project[]
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MemberRole   @default(MEMBER)
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+// ───────────────────────────── Projects ─────────────────────────────
+
+model Project {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  name                 String
+  description          String?
+  /// Declared default CRS, e.g. "EPSG:25832". Null = unknown.
+  defaultCrs           String?
+  /// Declared default vertical datum, e.g. "NN2000". Null = unknown.
+  defaultVerticalDatum String?
+  units                String       @default("m")
+  createdById          String
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy            User         @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  scans                Scan[]
+  assets               Asset[]
+  jobs                 ProcessingJob[]
+  measurements         Measurement[]
+  crossSections        CrossSection[]
+  volumeCalculations   VolumeCalculation[]
+  sceneObjects         SceneObject[]
+  exports              Export[]
+  conversations        AIConversation[]
+  toolCalls            AIToolCall[]
+
+  @@index([organizationId])
+}
+
+enum ScanStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+/// A capture (one acquisition session / import). Contains raw files and the
+/// assets derived from them.
+model Scan {
+  id              String     @id @default(cuid())
+  projectId       String
+  name            String
+  /// Acquisition source (see DATA_SOURCES in @massefelt/shared).
+  source          String     @default("unknown")
+  acquisitionDate DateTime?
+  crs             String?
+  verticalDatum   String?
+  units           String     @default("m")
+  status          ScanStatus @default(UPLOADED)
+  statusMessage   String?
+  createdById     String
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy       User       @relation(fields: [createdById], references: [id])
+  files           ScanFile[]
+  assets          Asset[]
+  jobs            ProcessingJob[]
+  measurements    Measurement[]
+
+  @@index([projectId])
+}
+
+/// Original uploaded file, stored verbatim and never executed.
+model ScanFile {
+  id               String   @id @default(cuid())
+  scanId           String
+  originalFilename String
+  format           String
+  mimeType         String?
+  sizeBytes        BigInt
+  sha256           String
+  storageKey       String
+  createdAt        DateTime @default(now())
+  scan             Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  assets           Asset[]
+
+  @@index([scanId])
+}
+
+// ───────────────────────────── Assets & provenance ─────────────────────────────
+
+enum AssetKind {
+  POINT_CLOUD
+  MESH
+  SURFACE
+  IMAGE_SET
+}
+
+/// Provenance root for every stored/processed dataset.
+model Asset {
+  id                String      @id @default(cuid())
+  projectId         String
+  scanId            String?
+  kind              AssetKind
+  name              String
+  // Provenance ------------------------------------------------------------
+  originalFilename  String
+  source            String
+  acquisitionDate   DateTime?
+  crs               String?
+  verticalDatum     String?
+  processingMethod  String
+  processingVersion String
+  units             String
+  parentAssetId     String?
+  sourceFileId      String?
+  createdAt         DateTime    @default(now())
+  // Storage ---------------------------------------------------------------
+  /// Web-optimized representation (e.g. MFPC point buffer).
+  storageKey        String?
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan              Scan?       @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  parentAsset       Asset?      @relation("AssetLineage", fields: [parentAssetId], references: [id], onDelete: SetNull)
+  childAssets       Asset[]     @relation("AssetLineage")
+  sourceFile        ScanFile?   @relation(fields: [sourceFileId], references: [id], onDelete: SetNull)
+  pointCloud        PointCloud?
+  mesh              Mesh?
+  surface           Surface?
+
+  @@index([projectId])
+  @@index([scanId])
+}
+
+model PointCloud {
+  assetId      String  @id
+  pointCount   Int
+  minX         Float
+  minY         Float
+  minZ         Float
+  maxX         Float
+  maxY         Float
+  maxZ         Float
+  /// Local origin used by the web-optimized Float32 buffer (world coordinates).
+  originX      Float
+  originY      Float
+  originZ      Float
+  hasColor     Boolean @default(false)
+  hasIntensity Boolean @default(false)
+  /// Full deterministic statistics (PointCloudStatistics) at processing time.
+  statistics   Json
+  asset        Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+model Mesh {
+  assetId     String @id
+  vertexCount Int
+  faceCount   Int
+  asset       Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+enum SurfaceType {
+  TIN
+  GRID
+}
+
+model Surface {
+  assetId    String      @id
+  surfaceType SurfaceType
+  /// Grid cell size in asset units (GRID only).
+  resolution Float?
+  asset      Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────────── Processing ─────────────────────────────
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+/// Background processing job. The table doubles as a durable queue: workers
+/// claim rows with SELECT … FOR UPDATE SKIP LOCKED.
+model ProcessingJob {
+  id            String    @id @default(cuid())
+  projectId     String
+  scanId        String?
+  /// e.g. "pointcloud.import.xyz", "photogrammetry.reconstruct"
+  type          String
+  status        JobStatus @default(QUEUED)
+  /// Where the job runs: "inline" (web process, small deterministic work) or "worker".
+  executor      String    @default("worker")
+  input         Json      @default("{}")
+  output        Json?
+  error         String?
+  progress      Float     @default(0)
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3)
+  engine        String?
+  engineVersion String?
+  lockedBy      String?
+  lockedAt      DateTime?
+  runAfter      DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan          Scan?     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([projectId])
+}
+
+// ───────────────────────────── Analysis ─────────────────────────────
+
+enum MeasurementType {
+  DISTANCE
+  ELEVATION_DIFFERENCE
+  POLYLINE
+  AREA
+}
+
+model Measurement {
+  id            String          @id @default(cuid())
+  projectId     String
+  scanId        String?
+  type          MeasurementType
+  name          String
+  /// Ordered world-coordinate vertices [{x,y,z}, …] in `crs`.
+  points        Json
+  /// Primary scalar result (e.g. 3D distance) in `units`.
+  value         Float
+  /// Full engine result (e.g. dx, dy, dz, horizontal distance, slope).
+  result        Json
+  crs           String?
+  units         String          @default("m")
+  engineVersion String
+  createdById   String
+  createdAt     DateTime        @default(now())
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan          Scan?           @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  createdBy     User            @relation(fields: [createdById], references: [id])
+
+  @@index([projectId])
+}
+
+/// Planned (milestone 2+): cross section along a line through a surface.
+model CrossSection {
+  id             String   @id @default(cuid())
+  projectId      String
+  surfaceAssetId String?
+  name           String
+  line           Json
+  corridorWidth  Float?
+  result         Json?
+  engineVersion  String?
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Planned (milestone 2+): cut/fill or stockpile volume.
+model VolumeCalculation {
+  id                 String   @id @default(cuid())
+  projectId          String
+  name               String
+  /// "surface-to-surface" | "surface-to-plane" | "stockpile"
+  method             String
+  baseSurfaceAssetId String?
+  topSurfaceAssetId  String?
+  referenceElevation Float?
+  boundary           Json?
+  cut                Float?
+  fill               Float?
+  net                Float?
+  result             Json?
+  engineVersion      String?
+  createdAt          DateTime @default(now())
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Dimensionally correct object placed in the scene. Dimensions in metres,
+/// position in project CRS, rotation in radians (XYZ).
+model SceneObject {
+  id         String   @id @default(cuid())
+  projectId  String
+  type       String
+  name       String?
+  dimensions Json
+  positionX  Float
+  positionY  Float
+  positionZ  Float
+  rotationX  Float    @default(0)
+  rotationY  Float    @default(0)
+  rotationZ  Float    @default(0)
+  scaleX     Float    @default(1)
+  scaleY     Float    @default(1)
+  scaleZ     Float    @default(1)
+  /// "user" | "ai-tool" | "generator" | "import"
+  source     String
+  metadata   Json     @default("{}")
+  crs        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+enum ExportFormat {
+  PDF
+  DXF
+  IFC
+  CSV
+  LANDXML
+}
+
+/// Planned: generated reports/exports.
+model Export {
+  id         String       @id @default(cuid())
+  projectId  String
+  format     ExportFormat
+  status     JobStatus    @default(QUEUED)
+  storageKey String?
+  jobId      String?
+  createdAt  DateTime     @default(now())
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ───────────────────────────── AI ─────────────────────────────
+
+model AIConversation {
+  id        String       @id @default(cuid())
+  projectId String
+  userId    String
+  provider  String
+  model     String?
+  title     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  AIMessage[]
+  toolCalls AIToolCall[]
+
+  @@index([projectId])
+}
+
+model AIMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  /// "user" | "assistant"
+  role           String
+  content        String
+  createdAt      DateTime       @default(now())
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+/// Audit log of every tool invocation made on behalf of an AI model.
+model AIToolCall {
+  id             String          @id @default(cuid())
+  projectId      String
+  conversationId String?
+  provider       String
+  toolName       String
+  arguments      Json
+  ok             Boolean
+  result         Json?
+  error          String?
+  durationMs     Int
+  createdAt      DateTime        @default(now())
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation   AIConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([conversationId])
+}
