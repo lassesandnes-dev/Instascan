@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ViewerSettings } from "@/viewer/PointCloudViewer";
 
-export type ToolMode = "navigate" | "measure-distance";
+export type ToolMode = "navigate" | "measure-distance" | "volume" | "cross-section";
 
 interface Props {
   projectName: string;
@@ -21,7 +21,7 @@ const btn = "rounded px-2.5 py-1.5 text-xs font-medium transition-colors";
 const idle = `${btn} text-slate-200 hover:bg-slate-800`;
 const active = `${btn} bg-sky-600 text-white`;
 
-const PLANNED = ["Top view", "Section plane", "Polygon", "Cross section", "Volume", "Compare surfaces", "Place object", "Export"];
+const PLANNED = ["Top view", "Section plane", "Place object", "Stone staircase", "Export PDF/DXF/IFC"];
 
 export function Toolbar(p: Props) {
   return (
@@ -51,6 +51,22 @@ export function Toolbar(p: Props) {
         title="Click two points to measure (Esc to cancel)"
       >
         Measure distance
+      </button>
+      <button
+        className={p.tool === "volume" ? active : idle}
+        onClick={() => p.onToolChange(p.tool === "volume" ? "navigate" : "volume")}
+        data-testid="tool-volume"
+        title="Draw a boundary polygon and calculate cut/fill or stockpile volume"
+      >
+        Volume
+      </button>
+      <button
+        className={p.tool === "cross-section" ? active : idle}
+        onClick={() => p.onToolChange(p.tool === "cross-section" ? "navigate" : "cross-section")}
+        data-testid="tool-section"
+        title="Click two points to create a terrain profile"
+      >
+        Cross section
       </button>
       <button className={idle} onClick={p.onResetView} data-testid="reset-view">
         Reset view

@@ -1,6 +1,15 @@
-import type { MeasurementRecord, ScanDetail, ScanSummary } from "@massefelt/tools";
+import type { CrossSectionRecord, MeasurementRecord, ScanDetail, ScanSummary, SurfaceSummary, VolumeRecord } from "@massefelt/tools";
 
-export type { MeasurementRecord, ScanDetail, ScanSummary };
+export type { CrossSectionRecord, MeasurementRecord, ScanDetail, ScanSummary, SurfaceSummary, VolumeRecord };
+
+export type VolumeReferenceInput =
+  | { type: "elevation"; z: number }
+  | { type: "lowest-boundary" }
+  | { type: "boundary-plane" }
+  | { type: "surface"; surfaceId: string };
+
+const postJson = (url: string, body: unknown) =>
+  fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 export class ApiError extends Error {
   constructor(
@@ -68,6 +77,44 @@ export const api = {
   },
   async deleteMeasurement(id: string) {
     return handle<void>(await fetch(`/api/measurements/${id}`, { method: "DELETE" }));
+  },
+  async listSurfaces(projectId: string) {
+    return handle<{ surfaces: SurfaceSummary[] }>(await fetch(`/api/projects/${projectId}/surfaces`, { cache: "no-store" }));
+  },
+  async buildSurface(scanId: string, input: { cellSize: number; aggregation: "mean" | "min" | "max"; name?: string }) {
+    return handle<{ surface: SurfaceSummary }>(await postJson(`/api/scans/${scanId}/surfaces`, input));
+  },
+  async getSurfaceGrid(surfaceId: string) {
+    const res = await fetch(`/api/surfaces/${surfaceId}/grid`);
+    if (!res.ok) await handle(res);
+    return res.arrayBuffer();
+  },
+  async deleteSurface(surfaceId: string) {
+    return handle<void>(await fetch(`/api/surfaces/${surfaceId}`, { method: "DELETE" }));
+  },
+  async listVolumes(projectId: string) {
+    return handle<{ volumes: VolumeRecord[] }>(await fetch(`/api/projects/${projectId}/volumes`, { cache: "no-store" }));
+  },
+  async createVolume(
+    projectId: string,
+    input: { name?: string; surfaceId: string; boundary: { x: number; y: number }[]; reference: VolumeReferenceInput },
+  ) {
+    return handle<{ volume: VolumeRecord }>(await postJson(`/api/projects/${projectId}/volumes`, input));
+  },
+  async deleteVolume(id: string) {
+    return handle<void>(await fetch(`/api/volumes/${id}`, { method: "DELETE" }));
+  },
+  async listSections(projectId: string) {
+    return handle<{ crossSections: CrossSectionRecord[] }>(await fetch(`/api/projects/${projectId}/sections`, { cache: "no-store" }));
+  },
+  async createSection(
+    projectId: string,
+    input: { name?: string; surfaceId: string; referenceSurfaceId?: string | null; line: { x: number; y: number }[]; interval?: number },
+  ) {
+    return handle<{ crossSection: CrossSectionRecord }>(await postJson(`/api/projects/${projectId}/sections`, input));
+  },
+  async deleteSection(id: string) {
+    return handle<void>(await fetch(`/api/sections/${id}`, { method: "DELETE" }));
   },
   async providers() {
     return handle<{ providers: { id: "openai" | "anthropic"; label: string; model: string; configured: boolean }[] }>(

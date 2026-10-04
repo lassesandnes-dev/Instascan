@@ -6,6 +6,9 @@ export interface UISelection {
   scanId: string | null;
   measurementId: string | null;
   objectIds: string[];
+  surfaceId?: string | null;
+  volumeId?: string | null;
+  crossSectionId?: string | null;
 }
 
 /** Server-side execution context. Never populated from model output. */

@@ -219,11 +219,22 @@ enum SurfaceType {
 }
 
 model Surface {
-  assetId    String      @id
+  assetId     String      @id
   surfaceType SurfaceType
   /// Grid cell size in asset units (GRID only).
-  resolution Float?
-  asset      Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  resolution  Float?
+  /// GRID geometry: lower-left corner, size and elevation range (world coordinates).
+  cols        Int?
+  rows        Int?
+  originX     Float?
+  originY     Float?
+  zMin        Float?
+  zMax        Float?
+  /// Cell aggregation used when rasterising points: "mean" | "min" | "max".
+  aggregation String?
+  validCells  Int?
+  filledCells Int?
+  asset       Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
 }
 
 // ───────────────────────────── Processing ─────────────────────────────
@@ -301,29 +312,37 @@ model Measurement {
   @@index([projectId])
 }
 
-/// Planned (milestone 2+): cross section along a line through a surface.
+/// Profile along a polyline through a surface (optionally compared with a reference surface).
 model CrossSection {
-  id             String   @id @default(cuid())
-  projectId      String
-  surfaceAssetId String?
-  name           String
-  line           Json
-  corridorWidth  Float?
-  result         Json?
-  engineVersion  String?
-  createdAt      DateTime @default(now())
+  id                  String   @id @default(cuid())
+  projectId           String
+  surfaceAssetId      String?
+  referenceSurfaceId  String?
+  name                String
+  line                Json
+  corridorWidth       Float?
+  length              Float?
+  interval            Float?
+  result              Json?
+  crs                 String?
+  units               String   @default("m")
+  engineVersion       String?
+  createdAt           DateTime @default(now())
   project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }
 
-/// Planned (milestone 2+): cut/fill or stockpile volume.
+/// Volume between a surface and a reference (fixed elevation, boundary base plane or another surface).
 model VolumeCalculation {
   id                 String   @id @default(cuid())
   projectId          String
   name               String
-  /// "surface-to-surface" | "surface-to-plane" | "stockpile"
+  /// Reference type: "elevation" | "lowest-boundary" | "boundary-plane" | "surface"
   method             String
+  area               Float?
+  crs                String?
+  units              String   @default("m")
   baseSurfaceAssetId String?
   topSurfaceAssetId  String?
   referenceElevation Float?

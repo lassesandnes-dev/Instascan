@@ -17,11 +17,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
     throw err;
   }
   const { data } = services();
-  const [project, scans, measurements] = await Promise.all([
+  const [project, scans, measurements, surfaces, volumes, sections] = await Promise.all([
     data.getProject(projectId),
     data.listScans(projectId),
     data.listMeasurements(projectId),
+    data.listSurfaces(projectId),
+    data.listVolumes(projectId),
+    data.listCrossSections(projectId),
   ]);
   if (!project) notFound();
-  return <Workspace project={project} initialScans={scans} initialMeasurements={measurements} />;
+  return (
+    <Workspace
+      project={project}
+      initialScans={scans}
+      initialMeasurements={measurements}
+      initialSurfaces={surfaces}
+      initialVolumes={volumes}
+      initialSections={sections}
+    />
+  );
 }

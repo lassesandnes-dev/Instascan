@@ -17,7 +17,8 @@
     "@massefelt/shared": "workspace:*",
     "@massefelt/tools": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.0",
-    "dotenv": "^17.2.0"
+    "dotenv": "^17.2.0",
+    "@massefelt/storage": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.0"

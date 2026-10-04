@@ -21,10 +21,11 @@ const g = globalThis as unknown as { __massefeltServices?: Services };
 export function services(): Services {
   if (!g.__massefeltServices) {
     const db = getPrisma();
+    const storage = createStorageFromEnv();
     g.__massefeltServices = {
       db,
-      storage: createStorageFromEnv(),
-      data: new PrismaProjectDataPort(db),
+      storage,
+      data: new PrismaProjectDataPort(db, (key) => storage.get(key)),
       tools: createDefaultToolRegistry(),
       providers: createProvidersFromEnv(),
     };

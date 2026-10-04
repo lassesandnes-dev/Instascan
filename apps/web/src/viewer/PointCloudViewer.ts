@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { DecodedPointBuffer } from "@massefelt/geometry";
+import type { DecodedPointBuffer, DemGrid } from "@massefelt/geometry";
 import type { Vec3 } from "@massefelt/shared";
 import { elevationColors } from "./colors";
 
@@ -30,6 +30,20 @@ interface CloudEntry {
 
 const MARKER_COLORS = { a: 0xf97316, b: 0x22d3ee, line: 0xfacc15 };
 
+export interface OverlayStyle {
+  color: number;
+  closed?: boolean;
+  /** Draw vertex markers. */
+  markers?: boolean;
+}
+
+interface SurfaceEntry {
+  mesh: THREE.Mesh;
+  originX: number;
+  originY: number;
+  zOrigin: number;
+}
+
 /**
  * Framework-agnostic Three.js point-cloud viewer.
  *
@@ -52,6 +66,8 @@ export class PointCloudViewer {
   private grid: THREE.GridHelper | null = null;
   private axes: THREE.AxesHelper | null = null;
   private readonly overlay = new THREE.Group();
+  private readonly overlays = new Map<string, THREE.Group>();
+  private readonly surfaces = new Map<string, SurfaceEntry>();
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
   private settings: ViewerSettings = { pointSize: 2, showGrid: true, showAxes: true };
@@ -88,6 +104,10 @@ export class PointCloudViewer {
     this.controls.zoomToCursor = true;
 
     this.scene.add(this.overlay);
+    this.scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+    sun.position.set(-1, -1.5, 2);
+    this.scene.add(sun);
     this.rebuildHelpers(50, 0);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -150,7 +170,7 @@ export class PointCloudViewer {
     entry.points.geometry.dispose();
     (entry.points.material as THREE.Material).dispose();
     this.clouds.delete(scanId);
-    if (this.clouds.size === 0) this.sceneOrigin = null;
+    if (this.clouds.size === 0 && this.surfaces.size === 0) this.sceneOrigin = null;
   }
 
   hasPointCloud(scanId: string): boolean {
@@ -183,6 +203,9 @@ export class PointCloudViewer {
     const box = new THREE.Box3();
     for (const { points } of this.clouds.values()) {
       if (points.visible) box.expandByObject(points);
+    }
+    for (const { mesh } of this.surfaces.values()) {
+      if (mesh.visible) box.expandByObject(mesh);
     }
     if (box.isEmpty()) {
       this.controls.target.set(0, 0, 0);
@@ -239,6 +262,103 @@ export class PointCloudViewer {
     }
   }
 
+  /** Draw a named polyline/polygon overlay from world coordinates (replaces an existing one with the same key). */
+  showOverlay(key: string, points: Vec3[], style: OverlayStyle): void {
+    this.clearOverlay(key);
+    if (points.length === 0) return;
+    this.ensureOrigin(points[0]!);
+    const local = points.map((p) => this.worldToScene(p));
+    const group = new THREE.Group();
+    group.renderOrder = 8;
+    if (local.length >= 2) {
+      const g = new THREE.BufferGeometry().setFromPoints(local);
+      const material = new THREE.LineBasicMaterial({ color: style.color, depthTest: false });
+      const line = style.closed && local.length >= 3 ? new THREE.LineLoop(g, material) : new THREE.Line(g, material);
+      line.renderOrder = 9;
+      group.add(line);
+    }
+    if (style.markers !== false) {
+      const g = new THREE.BufferGeometry().setFromPoints(local);
+      const m = new THREE.Points(g, new THREE.PointsMaterial({ size: 9, sizeAttenuation: false, color: style.color, depthTest: false }));
+      m.renderOrder = 10;
+      group.add(m);
+    }
+    this.scene.add(group);
+    this.overlays.set(key, group);
+  }
+
+  clearOverlay(key: string): void {
+    const group = this.overlays.get(key);
+    if (!group) return;
+    this.scene.remove(group);
+    group.traverse((o) => {
+      const obj = o as THREE.Mesh;
+      obj.geometry?.dispose();
+      (obj.material as THREE.Material | undefined)?.dispose();
+    });
+    this.overlays.delete(key);
+  }
+
+  /** Add a DEM grid as a shaded, semi-transparent terrain mesh (vertices at cell centres). */
+  addSurface(id: string, grid: DemGrid): void {
+    this.removeSurface(id);
+    let zOrigin = Infinity;
+    for (const v of grid.z) if (!Number.isNaN(v) && v < zOrigin) zOrigin = v;
+    if (!Number.isFinite(zOrigin)) return;
+    this.ensureOrigin({ x: grid.originX, y: grid.originY, z: zOrigin });
+    const { cols, rows, cellSize } = grid;
+    const positions = new Float32Array(cols * rows * 3);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const k = r * cols + c;
+        positions[k * 3] = (c + 0.5) * cellSize;
+        positions[k * 3 + 1] = (r + 0.5) * cellSize;
+        positions[k * 3 + 2] = Number.isNaN(grid.z[k]!) ? 0 : grid.z[k]! - zOrigin;
+      }
+    }
+    const index: number[] = [];
+    for (let r = 0; r < rows - 1; r++) {
+      for (let c = 0; c < cols - 1; c++) {
+        const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
+        if ([a, b, d, e].some((k) => Number.isNaN(grid.z[k]!))) continue;
+        index.push(a, b, e, a, e, d);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(elevationColors(positions, cols * rows), 3));
+    geometry.setIndex(index);
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.7, side: THREE.DoubleSide }),
+    );
+    mesh.name = `surface:${id}`;
+    const o = this.sceneOrigin!;
+    mesh.position.set(grid.originX - o.x, grid.originY - o.y, zOrigin - o.z);
+    this.scene.add(mesh);
+    this.surfaces.set(id, { mesh, originX: grid.originX, originY: grid.originY, zOrigin });
+    this.fitHelpersToContent();
+  }
+
+  removeSurface(id: string): void {
+    const s = this.surfaces.get(id);
+    if (!s) return;
+    this.scene.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    (s.mesh.material as THREE.Material).dispose();
+    this.surfaces.delete(id);
+  }
+
+  hasSurface(id: string): boolean {
+    return this.surfaces.has(id);
+  }
+
+  setSurfaceVisible(id: string, visible: boolean): void {
+    const s = this.surfaces.get(id);
+    if (s) s.mesh.visible = visible;
+  }
+
   /** PNG snapshot of the current view (used later by renderView / reports). */
   snapshot(): string {
     return this.renderer.domElement.toDataURL("image/png");
@@ -254,6 +374,8 @@ export class PointCloudViewer {
     el.removeEventListener("pointerup", this.handlePointerUp);
     el.removeEventListener("pointerleave", this.handlePointerLeave);
     for (const id of [...this.clouds.keys()]) this.removePointCloud(id);
+    for (const id of [...this.surfaces.keys()]) this.removeSurface(id);
+    for (const key of [...this.overlays.keys()]) this.clearOverlay(key);
     this.clearMeasurement();
     this.controls.dispose();
     this.renderer.dispose();
@@ -261,6 +383,10 @@ export class PointCloudViewer {
   }
 
   // ───────────── internals ─────────────
+
+  private ensureOrigin(p: Vec3): void {
+    if (!this.sceneOrigin) this.sceneOrigin = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+  }
 
   private worldToScene(p: Vec3): THREE.Vector3 {
     const o = this.sceneOrigin ?? { x: 0, y: 0, z: 0 };
@@ -278,6 +404,7 @@ export class PointCloudViewer {
   private fitHelpersToContent(): void {
     const box = new THREE.Box3();
     for (const { points } of this.clouds.values()) box.expandByObject(points);
+    for (const { mesh } of this.surfaces.values()) box.expandByObject(mesh);
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
     const extent = Math.max(size.x, size.y, 1);

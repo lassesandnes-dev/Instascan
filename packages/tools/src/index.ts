@@ -14,3 +14,4 @@ export * from "./types";
 export * from "./data-port";
 export * from "./registry";
 export * from "./definitions";
+export * from "./terrain-tools";

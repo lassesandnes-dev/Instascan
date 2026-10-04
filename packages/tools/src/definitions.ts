@@ -2,6 +2,7 @@ import { z } from "zod";
 import { GEOMETRY_ENGINE_VERSION, measureDistance, measureElevationDifference } from "@massefelt/geometry";
 import { describeCrs, NotFoundError, ValidationError } from "@massefelt/shared";
 import { ToolRegistry } from "./registry";
+import { TERRAIN_TOOLS } from "./terrain-tools";
 import type { ToolContext, ToolDefinition } from "./types";
 
 const id = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, "Invalid id");
@@ -45,7 +46,11 @@ export const getSelectionTool = defineTool({
     const { scanId, measurementId, objectIds } = ctx.selection;
     const scan = scanId ? await ctx.data.getScan(ctx.projectId, scanId) : null;
     const measurement = measurementId ? await ctx.data.getMeasurement(ctx.projectId, measurementId) : null;
+    const surface = ctx.selection.surfaceId ? await ctx.data.getSurface(ctx.projectId, ctx.selection.surfaceId) : null;
+    const volume = ctx.selection.volumeId ? await ctx.data.getVolume(ctx.projectId, ctx.selection.volumeId) : null;
     return {
+      selectedSurface: surface ? { id: surface.id, name: surface.name } : null,
+      selectedVolume: volume ? { id: volume.id, name: volume.name } : null,
       selectedScan: scan ? { id: scan.id, name: scan.name } : null,
       selectedMeasurement: measurement ? { id: measurement.id, name: measurement.name, type: measurement.type } : null,
       selectedObjectIds: objectIds,
@@ -190,9 +195,6 @@ export const MILESTONE_1_TOOLS = [
  * registered, so models cannot call them and receive fabricated results.
  */
 export const PLANNED_TOOLS = [
-  { name: "calculateVolume", purpose: "Cut/fill and stockpile volumes against a surface or reference plane" },
-  { name: "createCrossSection", purpose: "Profile along a polyline through a surface" },
-  { name: "compareSurfaces", purpose: "Elevation difference between two terrain surfaces" },
   { name: "placeObject", purpose: "Place a dimensionally correct SceneObject on terrain" },
   { name: "createStaircase", purpose: "Generate stone steps between two terrain points" },
   { name: "renderView", purpose: "Render a server-side image of a viewpoint" },
@@ -202,5 +204,5 @@ export const PLANNED_TOOLS = [
 ] as const;
 
 export function createDefaultToolRegistry(): ToolRegistry {
-  return new ToolRegistry(MILESTONE_1_TOOLS);
+  return new ToolRegistry([...MILESTONE_1_TOOLS, ...TERRAIN_TOOLS]);
 }

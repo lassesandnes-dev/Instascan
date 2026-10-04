@@ -1,4 +1,5 @@
-import type { MeasurementRecord, ProjectDataPort, ScanDetail } from "../src";
+import { buildGridFromPointCloud, type DemGrid } from "@massefelt/geometry";
+import type { MeasurementRecord, ProjectDataPort, ScanDetail, SurfaceSummary, VolumeRecord } from "../src";
 
 export const PROJECT_ID = "proj_1";
 export const SCAN: ScanDetail = {
@@ -60,6 +61,32 @@ export const MEASUREMENT: MeasurementRecord = {
   createdAt: "2026-10-01T00:00:00.000Z",
 };
 
+/** 20×20 m flat ground at z=10 ("before") and the same with a 10×10×2 m box pile ("after"). */
+function grid(fn: (x: number, y: number) => number): DemGrid {
+  const pts: number[] = [];
+  for (let x = 0.125; x < 20; x += 0.25) for (let y = 0.125; y < 20; y += 0.25) pts.push(x, y, fn(x, y));
+  return buildGridFromPointCloud({ positions: Float64Array.from(pts), count: pts.length / 3 }, { cellSize: 0.5 }).grid;
+}
+const GRIDS: Record<string, DemGrid> = {
+  surf_before: grid(() => 10),
+  surf_after: grid((x, y) => (x > 5 && x < 15 && y > 5 && y < 15 ? 12 : 10)),
+  surf_other_crs: grid(() => 10),
+};
+function surface(id: string, name: string, crs = "EPSG:25832"): SurfaceSummary {
+  return {
+    id, name, scanId: "scan_1", surfaceType: "GRID", cellSize: 0.5, cols: 40, rows: 40, aggregation: "mean",
+    zMin: 10, zMax: 12, validCells: 1600, filledCells: 0, crs, verticalDatum: "NN2000", units: "m",
+    processingMethod: "dem-grid-mean", processingVersion: "0.2.0", parentAssetId: "asset_1", createdAt: "2026-10-01T00:00:00.000Z",
+  };
+}
+export const SURFACES = [surface("surf_before", "Before"), surface("surf_after", "After"), surface("surf_other_crs", "Other", "EPSG:5972")];
+export const VOLUME: VolumeRecord = {
+  id: "vol_1", name: "Pile", method: "elevation", topSurfaceId: "surf_after", baseSurfaceId: null, referenceElevation: 10,
+  boundary: [{ x: 4, y: 4 }, { x: 16, y: 4 }, { x: 16, y: 16 }, { x: 4, y: 16 }], area: 144,
+  volumeAbove: 200, volumeBelow: 0, net: 200, result: {}, crs: "EPSG:25832", units: "m", engineVersion: "0.2.0",
+  createdAt: "2026-10-01T00:00:00.000Z",
+};
+
 export function createFakeData(): ProjectDataPort {
   return {
     async getProject(projectId) {
@@ -89,6 +116,27 @@ export function createFakeData(): ProjectDataPort {
     },
     async getMeasurement(projectId, id) {
       return projectId === PROJECT_ID && id === MEASUREMENT.id ? MEASUREMENT : null;
+    },
+    async listSurfaces(projectId) {
+      return projectId === PROJECT_ID ? SURFACES : [];
+    },
+    async getSurface(projectId, id) {
+      return projectId === PROJECT_ID ? (SURFACES.find((s) => s.id === id) ?? null) : null;
+    },
+    async loadSurfaceGrid(projectId, id) {
+      return projectId === PROJECT_ID ? (GRIDS[id] ?? null) : null;
+    },
+    async listVolumes(projectId) {
+      return projectId === PROJECT_ID ? [VOLUME] : [];
+    },
+    async getVolume(projectId, id) {
+      return projectId === PROJECT_ID && id === VOLUME.id ? VOLUME : null;
+    },
+    async listCrossSections() {
+      return [];
+    },
+    async getCrossSection() {
+      return null;
     },
   };
 }

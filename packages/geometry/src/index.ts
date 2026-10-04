@@ -11,3 +11,7 @@ export * from "./stats";
 export * from "./measure";
 export * from "./encoding";
 export * from "./scene-objects";
+export * from "./polygon";
+export * from "./grid";
+export * from "./volume";
+export * from "./section";

@@ -165,6 +165,9 @@ importers:
       '@massefelt/shared':
         specifier: workspace:*
         version: link:../shared
+      '@massefelt/storage':
+        specifier: workspace:*
+        version: link:../storage
       '@massefelt/tools':
         specifier: workspace:*
         version: link:../tools

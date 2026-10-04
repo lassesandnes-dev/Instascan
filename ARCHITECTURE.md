@@ -55,6 +55,17 @@ Workspace packages are consumed as TypeScript source (`transpilePackages` in Nex
 - `PointCloudViewer` (`apps/web/src/viewer`) is framework-agnostic Three.js. React only hosts it. Planned extension points: an orthographic top view (camera swap), clipping/section planes (`renderer.clippingPlanes`), polygon selection (screen-space lasso + point-in-polygon on the engine side), mesh and imagery layers, and object placement gizmos.
 - Large clouds (planned): the worker will generate a tiled level-of-detail format (for example COPC or 3D Tiles) under the same `Asset` lineage, replacing the single MFPC buffer.
 
+## 4b. Surfaces, volumes and cross sections (milestone 2)
+
+- **DEM grid** (`geometry/grid.ts`). The grid origin is aligned to multiples of the cell size, so grids with the same resolution share cell boundaries. Each cell takes the mean, min or max of its points. Small holes are filled from at least 4 of the 8 neighbouring cells; open areas are never extrapolated. Grids are stored as **MFDM v1**: Float32 elevations relative to a Float64 base elevation, with NaN for "no data".
+- **Volume** (`geometry/volume.ts`, grid-prism method). Each cell contributes (surface − reference) × the area of the cell that lies inside the boundary. Cells crossed by the boundary are found by rasterising its edges, and their inside fraction is estimated with 8×8 sub-sampling.
+  - The reference is a fixed elevation, the lowest boundary sample, a least-squares plane through the boundary samples (its RMS residual is reported, with a warning when it is large), or another surface.
+  - Area without data is reported as `voidArea` / `voidFraction` and excluded, never interpolated silently.
+  - Results carry `engineVersion` (0.2.0).
+- **Cross section** (`geometry/section.ts`). Bilinear samples along a polyline, with an optional reference surface. Saved sections keep up to 10,000 samples. The AI tool returns at most 100.
+- **Execution.** Surface building runs inline up to `SURFACE_MAX_CELLS` (default 4 M cells) and is recorded as a `surface.build` job. Larger grids are meant for the worker.
+- **Identical results in UI and AI.** `services/volumes.createVolume` calls the same `calculateVolumeTool.execute` that the AI uses, then saves the result in `VolumeCalculation` (`cut` = above, `fill` = below).
+
 ## 5. Tool layer and AI
 
 ```
@@ -85,7 +96,8 @@ Browser (AI panel) ──POST /api/ai/chat {projectId, provider, message, select
 - **Anthropic.** Uses the Messages API (`client.beta.messages.stream`) with adaptive thinking (the model default), `output_config.effort`, server-side refusal fallback (`fallbacks: "default"`) and `eager_input_streaming` on tools. Inputs are validated by the registry anyway. All tool results from one turn go back in a single user message.
 - **Context.** The system prompt contains the project name and ID, the selected scan, measurement and objects, and measurement names, but **no values**. The model must call `getMeasurement`, `getStatistics` and similar tools.
 - **Tools in milestone 1:** `getProject`, `getSelection`, `listScans`, `getScanMetadata`, `getBoundingBox`, `getStatistics`, `listMeasurements`, `getMeasurement`, `measureDistance`, `measureElevationDifference`.
-- **Planned tools (not registered):** `calculateVolume`, `createCrossSection`, `compareSurfaces`, `placeObject`, `createStaircase`, `renderView`, `exportDXF`, `exportIFC`, `createReport`. Mutating tools will be marked `readOnly: false` and will require user confirmation in the UI.
+- **Tools in milestone 2:** `listSurfaces`, `getSurfaceMetadata`, `calculateVolume`, `compareSurfaces`, `createCrossSection`, `listVolumeCalculations`, `getVolumeCalculation`, `listCrossSections`. They compute without saving. The UI selection (`surfaceId`, `volumeId`) is verified against the project before it reaches the tools.
+- **Planned tools (not registered):** `placeObject`, `createStaircase`, `renderView`, `exportDXF`, `exportIFC`, `createReport`. Mutating tools will be marked `readOnly: false` and will require user confirmation in the UI.
 - **MCP.** `packages/mcp` exposes the same `ToolRegistry.specs()` and `execute()` over the Model Context Protocol, so external clients (Claude, ChatGPT and other MCP hosts) get identical tools and guarantees.
 - **Limits.** `AI_MAX_TOOL_ROUNDS`, `AI_MAX_MESSAGE_CHARS`, a 20k-character cap on tool results returned to a model, and a history window of 30 messages.
 
@@ -120,6 +132,6 @@ The `CameraAdapter` interface (`packages/capture`) has two implementations. `Bro
 
 ## 10. Roadmap (next steps)
 
-1. **Surfaces and volumes.** Ground-filter and grid (DEM) or TIN from a point cloud in the worker. Then the `calculateVolume` tool (surface-to-plane and surface-to-surface, cut/fill, stockpile with a base polygon), polygon drawing in the viewer, and a cross-section tool.
-2. **More formats via the worker.** LAS/LAZ and E57 through PDAL, with a tiled LOD output for large clouds and job-progress UI.
+1. ~~Surfaces and volumes~~ (done in milestone 2). Next in this area: ground classification, TIN with breaklines, and report export of volume results (PDF/CSV).
+2. **More formats via the worker.** LAS/LAZ and E57 through PDAL, with a tiled LOD output for large clouds, large DEM builds in the worker, and job-progress UI.
 3. **Production auth and deployment.** Supabase Auth, multi-organization UI, S3 in all environments, and a hosted MCP endpoint with per-user authorization.

@@ -20,8 +20,10 @@ export const chatRequestSchema = z.object({
       scanId: id.nullable().default(null),
       measurementId: id.nullable().default(null),
       objectIds: z.array(id).max(100).default([]),
+      surfaceId: id.nullable().default(null),
+      volumeId: id.nullable().default(null),
     })
-    .default({ scanId: null, measurementId: null, objectIds: [] }),
+    .default({ scanId: null, measurementId: null, objectIds: [], surfaceId: null, volumeId: null }),
 });
 
 /** Event stream sent to the browser: assistant events plus the conversation id. */
@@ -52,13 +54,18 @@ export async function* chat(user: CurrentUser, input: unknown, signal?: AbortSig
   }
 
   // Verify selection belongs to this project; silently drop ids that don't.
-  const [scan, measurement, measurements] = await Promise.all([
+  const [scan, measurement, measurements, surfaces, volume] = await Promise.all([
     req.selection.scanId ? db.scan.findFirst({ where: { id: req.selection.scanId, projectId: project.id } }) : null,
     req.selection.measurementId
       ? db.measurement.findFirst({ where: { id: req.selection.measurementId, projectId: project.id } })
       : null,
     db.measurement.findMany({ where: { projectId: project.id }, select: { id: true, name: true }, orderBy: { createdAt: "asc" }, take: 50 }),
+    db.asset.findMany({ where: { projectId: project.id, kind: "SURFACE" }, select: { id: true, name: true }, orderBy: { createdAt: "asc" }, take: 50 }),
+    req.selection.volumeId
+      ? db.volumeCalculation.findFirst({ where: { id: req.selection.volumeId, projectId: project.id }, select: { id: true, name: true } })
+      : null,
   ]);
+  const surface = surfaces.find((s) => s.id === req.selection.surfaceId) ?? null;
   const objectIds = req.selection.objectIds.length
     ? (
         await db.sceneObject.findMany({ where: { projectId: project.id, id: { in: req.selection.objectIds } }, select: { id: true } })
@@ -89,7 +96,13 @@ export async function* chat(user: CurrentUser, input: unknown, signal?: AbortSig
   const toolContext: ToolContext = {
     projectId: project.id,
     userId: user.id,
-    selection: { scanId: scan?.id ?? null, measurementId: measurement?.id ?? null, objectIds },
+    selection: {
+      scanId: scan?.id ?? null,
+      measurementId: measurement?.id ?? null,
+      objectIds,
+      surfaceId: surface?.id ?? null,
+      volumeId: volume?.id ?? null,
+    },
     data,
   };
   const conversationId = conversation.id;
@@ -105,6 +118,9 @@ export async function* chat(user: CurrentUser, input: unknown, signal?: AbortSig
       selectedMeasurement: measurement ? { id: measurement.id, name: measurement.name } : null,
       selectedObjectIds: objectIds,
       measurements,
+      selectedSurface: surface,
+      selectedVolume: volume,
+      surfaces,
     },
     history,
     maxToolRounds: env.AI_MAX_TOOL_ROUNDS,

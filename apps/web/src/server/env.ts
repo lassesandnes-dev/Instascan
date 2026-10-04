@@ -9,6 +9,8 @@ const schema = z.object({
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(100 * 1024 * 1024),
   /** Maximum number of points accepted from one point file. */
   UPLOAD_MAX_POINTS: z.coerce.number().int().positive().default(10_000_000),
+  /** Largest DEM grid built inline in the web process (larger grids belong in the worker). */
+  SURFACE_MAX_CELLS: z.coerce.number().int().positive().default(4_000_000),
   AI_MAX_TOOL_ROUNDS: z.coerce.number().int().min(1).max(20).default(8),
   AI_MAX_MESSAGE_CHARS: z.coerce.number().int().positive().default(8_000),
 });

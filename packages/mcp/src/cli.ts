@@ -10,6 +10,7 @@ import { config } from "dotenv";
 import path from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { getPrisma, PrismaProjectDataPort } from "@massefelt/database";
+import { createStorageFromEnv } from "@massefelt/storage";
 import { createDefaultToolRegistry } from "@massefelt/tools";
 import { createMassefeltMcpServer } from "./index";
 
@@ -21,7 +22,8 @@ if (!projectId) {
   process.exit(1);
 }
 const db = getPrisma();
-const data = new PrismaProjectDataPort(db);
+const storage = createStorageFromEnv();
+const data = new PrismaProjectDataPort(db, (key) => storage.get(key));
 
 const server = createMassefeltMcpServer({
   registry: createDefaultToolRegistry(),

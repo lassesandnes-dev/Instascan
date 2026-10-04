@@ -22,11 +22,21 @@ interface Turn {
 
 interface Props {
   projectId: string;
-  selection: { scanId: string | null; measurementId: string | null; objectIds: string[] };
+  selection: {
+    scanId: string | null;
+    measurementId: string | null;
+    objectIds: string[];
+    surfaceId?: string | null;
+    volumeId?: string | null;
+  };
   selectionLabel: string;
 }
 
-const SUGGESTIONS = ["What scans are available in this project?", "What is the distance of the selected measurement?"];
+const SUGGESTIONS = [
+  "What scans are available in this project?",
+  "What is the distance of the selected measurement?",
+  "How large is the selected volume calculation?",
+];
 
 export function AssistantPanel({ projectId, selection, selectionLabel }: Props) {
   const [providers, setProviders] = useState<{ id: ProviderId; label: string; model: string; configured: boolean }[]>([]);

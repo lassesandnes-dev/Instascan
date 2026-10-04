@@ -4,7 +4,7 @@ A web platform for construction-site 3D scanning: point clouds, terrain analysis
 
 "Massefelt" (volume calculation) is one module. The platform is built as a general 3D data platform: projects, scans, processed assets with full provenance, a deterministic geometry engine, and an AI assistant that can reach project data **only through validated tools**.
 
-> **Status: Milestone 1 (vertical slice).** Upload an XYZ/CSV point file, view it in 3D, measure and save distances, and ask the AI assistant about scans and measurements. Everything else is designed and marked **Planned** in the UI and docs. See [What works](#what-works-milestone-1) and [Planned](#planned).
+> **Status: Milestone 2.** Upload an XYZ/CSV point file, view it in 3D, measure distances, build DEM terrain surfaces, calculate cut/fill and stockpile volumes, compare surfaces, create cross sections, and ask the AI assistant about all of it. Everything else is designed and marked **Planned** in the UI and docs. See [What works](#what-works-milestone-1), [Milestone 2](#milestone-2-surfaces-volumes-cross-sections) and [Planned](#planned).
 
 ---
 
@@ -118,13 +118,35 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 Also included: point-size slider, grid and axes toggles, scan visibility, scan and measurement deletion, scan metadata/provenance panel, cursor coordinates in the status bar, and the MCP server.
 
+## Milestone 2: surfaces, volumes, cross sections
+
+- **DEM surfaces.** Select a scan and click **Build DEM surface**. The cell size is suggested from the point density, and each cell takes the mean, min (ground) or max of its points. The grid is stored as a new `SURFACE` asset whose parent is the point cloud, with the same CRS, datum and units. It is shown as a shaded terrain mesh that you can toggle.
+- **Volumes.** Click **Volume**, click the boundary vertices, and close the polygon (Enter). Then choose the surface and a reference:
+  - a base plane fitted to the boundary (stockpile or pit on a slope)
+  - a horizontal plane through the lowest boundary point
+  - a fixed elevation (design level)
+  - another surface (before/after comparison)
+
+  The result shows volume above (cut / stockpile), volume below (fill / excavation), net, analysed area, the share of the area with no data, and warnings such as a non-planar base. The calculation is saved.
+- **Cross sections.** Click **Cross section** and pick two points. You get a profile chart along the line, optionally compared against a second surface (dashed). The section is saved.
+- **AI tools:** `listSurfaces`, `getSurfaceMetadata`, `calculateVolume`, `compareSurfaces`, `createCrossSection`, `listVolumeCalculations`, `getVolumeCalculation`, `listCrossSections`. The UI's **Calculate** button runs the same `calculateVolume` tool, so the UI and the AI give identical numbers.
+- **Accuracy on the sample** (`samples/terrain-stockpile-epsg25832.xyz`, 0.5 m grid):
+
+  | Feature | Computed | Analytic | Deviation |
+  | --- | --- | --- | --- |
+  | Stockpile cone | 339.3 m³ | 339.3 m³ | 0.0 % |
+  | Excavation pit | 609.1 m³ | 605.8 m³ | +0.5 % |
+
+  Integration tests assert ±3 %. The engine unit tests also cover a box (200 m³), a cone on a slope, a truncated pyramid, and surface-to-surface differences.
+- Surfaces in different declared CRSs or units are never compared. The tools refuse instead of converting.
+
 ## Planned
 
 These are designed but not implemented. The UI and docs mark them **Planned**, and planned AI tools are deliberately not registered:
 
 - LAS/LAZ, E57, PLY, OBJ, GLB/glTF, GeoTIFF and ASCII-grid import (run in the worker)
-- Surfaces (TIN/DEM), cut/fill and stockpile volumes, cross sections, surface comparison
-- Orthographic top view, clipping/section planes, polygon selection, classification, mesh display, imagery and map background
+- TIN surfaces, ground classification and breaklines (DEM grids exist since milestone 2), and large grids built in the worker
+- Orthographic top view, clipping/section planes, point classification, imagery and map background
 - Object placement (the data model is ready) and the automatic stone-staircase generator
 - PDF/DXF/IFC exports and reports
 - Photogrammetry engines (the interface and job pipeline are ready), the Insta360 X5 iOS shell, and Høydedata.no import
